@@ -37,12 +37,11 @@ fn test_register() {
     let expected_uid = get_uid(resolver, revocable, @schema);
 
     let uid = dispatcher.register(resolver, revocable, schema.clone());
-    assert(uid == expected_uid, 'unexpected uid');
-
+    assert_eq!(uid, expected_uid, "uid mismatch");
     let record = SchemaRecord { resolver, revocable, schema };
 
-    let schema_option = dispatcher.get_schema(uid);
+    let schema_record = dispatcher.get_schema(uid).unwrap();
 
-    assert(schema_option == Some(record), 'schema registration wrong');
+    assert_eq!(schema_record, record, "schema mismatch");
 }
 
