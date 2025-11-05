@@ -1,5 +1,5 @@
 use attestation::schema_registry::{
-    ISchemaRegistryDispatcher, ISchemaRegistryDispatcherTrait, SchemaOption, SchemaRecord,
+    ISchemaRegistryDispatcher, ISchemaRegistryDispatcherTrait, SchemaRecord,
 };
 use core::hash::{HashStateExTrait, HashStateTrait};
 use core::poseidon::{PoseidonTrait, poseidon_hash_span};
@@ -43,6 +43,6 @@ fn test_register() {
 
     let schema_option = dispatcher.get_schema(uid);
 
-    assert(schema_option == SchemaOption::Some(record), 'schema registration wrong');
+    assert(schema_option == Some(record), 'schema registration wrong');
 }
 

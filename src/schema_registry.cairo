@@ -7,20 +7,13 @@ pub struct SchemaRecord {
     pub schema: ByteArray,
 }
 
-#[derive(Debug, Serde, Drop, Clone, PartialEq, starknet::Store)]
-pub enum SchemaOption {
-    #[default]
-    None,
-    Some: SchemaRecord,
-}
-
 
 #[starknet::interface]
 pub trait ISchemaRegistry<TState> {
     fn register(
         ref self: TState, resolver: ContractAddress, revocable: bool, schema: ByteArray,
     ) -> felt252;
-    fn get_schema(self: @TState, uid: felt252) -> SchemaOption;
+    fn get_schema(self: @TState, uid: felt252) -> Option<SchemaRecord>;
 }
 
 
@@ -33,11 +26,11 @@ mod SchemaRegistry {
     use starknet::storage::{
         Map, StoragePathEntry, StoragePointerReadAccess, StoragePointerWriteAccess,
     };
-    use super::{SchemaOption, SchemaRecord};
+    use super::SchemaRecord;
 
     #[storage]
     struct Storage {
-        registry: Map<felt252, SchemaOption>,
+        registry: Map<felt252, Option<SchemaRecord>>,
     }
 
 
@@ -47,7 +40,7 @@ mod SchemaRegistry {
 
     #[abi(embed_v0)]
     impl SchemaRegistry of super::ISchemaRegistry<ContractState> {
-        fn get_schema(self: @ContractState, uid: felt252) -> SchemaOption {
+        fn get_schema(self: @ContractState, uid: felt252) -> Option<SchemaRecord> {
             self.registry.entry(uid).read()
         }
 
@@ -59,10 +52,8 @@ mod SchemaRegistry {
             let uid = self.hash(record.clone());
 
             match self.get_schema(uid) {
-                SchemaOption::Some(_) => { panic_with_felt252(Errors::ALREADY_EXISTS); },
-                SchemaOption::None => {
-                    self.registry.entry(uid).write(SchemaOption::Some(record));
-                },
+                Some(_) => { panic_with_felt252(Errors::ALREADY_EXISTS); },
+                None => { self.registry.entry(uid).write(Some(record)); },
             }
 
             uid
