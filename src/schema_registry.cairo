@@ -49,7 +49,7 @@ mod SchemaRegistry {
         ) -> felt252 {
             let record = SchemaRecord { resolver, revocable, schema };
 
-            let uid = self.hash(record.clone());
+            let uid = self.hash(@record);
 
             match self.get_schema(uid) {
                 Some(_) => { panic_with_felt252(Errors::ALREADY_EXISTS); },
@@ -63,12 +63,12 @@ mod SchemaRegistry {
 
     #[generate_trait]
     impl Internal of InternalTrait {
-        fn hash(self: @ContractState, record: SchemaRecord) -> felt252 {
+        fn hash(self: @ContractState, record: @SchemaRecord) -> felt252 {
             let mut output_arr = array![];
             record.schema.serialize(ref output_arr);
             PoseidonTrait::new()
-                .update_with(record.resolver)
-                .update_with(record.revocable)
+                .update_with(*record.resolver)
+                .update_with(*record.revocable)
                 .update(poseidon_hash_span(output_arr.span()))
                 .finalize()
         }
