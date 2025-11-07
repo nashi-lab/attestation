@@ -72,7 +72,9 @@ mod Attestations {
         pub const EXPIRATION_TIME_INVALID: felt252 = 'expiration time invalid';
         pub const IRREVOCABLE: felt252 = 'irrevocable';
         pub const ALREADY_EXISTS: felt252 = 'already exists';
-        pub const REFERENCE_UID_INVALID: felt252 = 'invalid reference uid';
+        pub const REFERENCE_UID_INVALID: felt252 = 'reference uid invalid';
+        pub const SCHEMA_UID_INVALID: felt252 = 'schema uid invalid';
+        pub const REVOKER_INVALID: felt252 = 'revoker invalid';
     }
 
 
@@ -89,11 +91,11 @@ mod Attestations {
             PoseidonTrait::new().update_with(*att).update(salt).finalize()
         }
 
-        fn attest(
+        fn make(
             ref self: ContractState,
             attester: ContractAddress,
             schema_uid: felt252,
-            requests: @Array<AttestationRequest>,
+            request: @AttestationRequest,
             salt: felt252,
         ) {
             let schema_record = self
@@ -102,50 +104,54 @@ mod Attestations {
                 .get_schema(schema_uid)
                 .expect(Errors::SCHEMA_RECORD_INVALID);
 
-            for request in requests.into_iter() {
-                assert(
-                    *request.expiration_time != None
-                        && request.expiration_time.unwrap() > get_block_timestamp(),
-                    Errors::EXPIRATION_TIME_INVALID,
-                );
+            assert(schema_record.revocable || !*request.revocable, Errors::IRREVOCABLE);
 
-                assert(!schema_record.revocable && *request.revocable, Errors::IRREVOCABLE);
+            assert(
+                request.expiration_time.is_none()
+                    || request.expiration_time.unwrap() > get_block_timestamp(),
+                Errors::EXPIRATION_TIME_INVALID,
+            );
 
-                let attestation_core = AttestationCore {
-                    attester: attester,
-                    recipient: *request.recipient,
-                    schema_uid: schema_uid,
-                    revocable: *request.revocable,
-                    creation_time: get_block_timestamp(),
-                    revocation_time: 0,
-                };
+            let attestation_core = AttestationCore {
+                attester,
+                recipient: *request.recipient,
+                schema_uid,
+                revocable: *request.revocable,
+                creation_time: get_block_timestamp(),
+                revocation_time: 0,
+            };
 
-                let uid = self.hash(@attestation_core, salt);
+            let uid = self.hash(@attestation_core, salt);
 
-                match self.attestation.entry(uid).read() {
-                    Some(_) => { panic_with_felt252(Errors::ALREADY_EXISTS) },
-                    None => {
-                        if let Some(val) = *request.reference_uid {
-                            assert(
-                                self.attestation.entry(val).read().is_some(),
-                                Errors::REFERENCE_UID_INVALID,
-                            );
-                        }
+            match self.attestation.entry(uid).read() {
+                Some(_) => { panic_with_felt252(Errors::ALREADY_EXISTS); },
+                None => {
+                    if let Some(val) = *request.reference_uid {
+                        assert(
+                            self.attestation.entry(val).read().is_some(),
+                            Errors::REFERENCE_UID_INVALID,
+                        );
 
                         let attestation = Attestation {
                             core: attestation_core,
                             reference_uid: *request.reference_uid,
                             revocation_time: 0,
                         };
+
                         self.attestation.entry(uid).write(Some(attestation));
+
+                        for e in request.data.into_iter() {
+                            self.data.entry(uid).push(*e);
+                        }
+
                         self
                             .emit(
                                 Attested {
                                     attester, recipient: *request.recipient, schema_uid, uid,
                                 },
                             );
-                    },
-                }
+                    }
+                },
             }
         }
     }
