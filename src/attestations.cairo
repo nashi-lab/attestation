@@ -72,6 +72,7 @@ mod Attestations {
     #[derive(Drop, Debug, PartialEq, starknet::Event)]
     pub enum Event {
         Attested: Attested,
+        Revoked: Revoked,
     }
 
     #[derive(Drop, Debug, PartialEq, starknet::Event)]
@@ -85,15 +86,27 @@ mod Attestations {
         pub uid: felt252,
     }
 
+    #[derive(Drop, Debug, PartialEq, starknet::Event)]
+    pub struct Revoked {
+        #[key]
+        pub recipient: ContractAddress,
+        #[key]
+        pub attester: ContractAddress,
+        #[key]
+        pub schema_uid: felt252,
+        pub uid: felt252,
+    }
+
 
     pub mod Errors {
         pub const SCHEMA_RECORD_INVALID: felt252 = 'schema record invalid';
         pub const EXPIRATION_TIME_INVALID: felt252 = 'expiration time invalid';
         pub const IRREVOCABLE: felt252 = 'irrevocable';
         pub const ALREADY_EXISTS: felt252 = 'already exists';
-        pub const REFERENCE_UID_INVALID: felt252 = 'reference uid invalid';
+        pub const UID_INVALID: felt252 = 'uid invalid';
         pub const SCHEMA_UID_INVALID: felt252 = 'schema uid invalid';
         pub const REVOKER_INVALID: felt252 = 'revoker invalid';
+        pub const ALREADY_REVOKED: felt252 = 'already revoked';
     }
 
 
@@ -148,7 +161,7 @@ mod Attestations {
             if let Some(reference_uid) = *request.reference_uid {
                 assert(
                     self.attestation.entry(reference_uid).read() == Default::default(),
-                    Errors::REFERENCE_UID_INVALID,
+                    Errors::UID_INVALID,
                 );
             }
 
@@ -168,6 +181,40 @@ mod Attestations {
             }
 
             self.emit(Attested { attester, recipient: *request.recipient, schema_uid, uid });
+        }
+
+        fn revoke(
+            ref self: ContractState, uid: felt252, schema_uid: felt252, revoker: ContractAddress,
+        ) {
+            self
+                .schema_registry
+                .read()
+                .get_schema(schema_uid)
+                .expect(Errors::SCHEMA_RECORD_INVALID);
+
+            let mut attestation = self.attestation.entry(uid).read();
+
+            assert(attestation != Default::default(), Errors::UID_INVALID);
+
+            assert(attestation.core.schema_uid == schema_uid, Errors::SCHEMA_UID_INVALID);
+
+            assert(attestation.core.attester == revoker, Errors::REVOKER_INVALID);
+
+            assert(attestation.core.revocable, Errors::IRREVOCABLE);
+
+            assert(attestation.revocation_time == 0, Errors::ALREADY_REVOKED);
+
+            attestation.revocation_time = get_block_timestamp();
+
+            self
+                .emit(
+                    Revoked {
+                        recipient: attestation.core.recipient,
+                        attester: attestation.core.attester,
+                        schema_uid,
+                        uid,
+                    },
+                );
         }
     }
 }
