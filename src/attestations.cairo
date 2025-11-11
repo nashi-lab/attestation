@@ -1,5 +1,21 @@
 use starknet::ContractAddress;
 
+#[derive(Debug, Drop, Copy, Clone, starknet::Store, PartialEq)]
+pub struct Attestation {
+    core: AttestationCore,
+    reference_uid: Option<felt252>,
+    revocation_time: u64,
+}
+
+#[derive(Debug, Copy, Hash, Drop, starknet::Store, PartialEq)]
+pub struct AttestationCore {
+    attester: ContractAddress,
+    recipient: ContractAddress,
+    schema_uid: felt252,
+    revocable: bool,
+    creation_time: u64,
+}
+
 
 pub struct AttestationRequest {
     recipient: ContractAddress,
@@ -12,40 +28,43 @@ pub struct AttestationRequest {
 
 pub trait IAttestation<TState> {}
 
+impl AttestationCoreDefault of Default<AttestationCore> {
+    fn default() -> AttestationCore {
+        AttestationCore {
+            attester: 0.try_into().unwrap(),
+            recipient: 0.try_into().unwrap(),
+            schema_uid: Default::default(),
+            revocable: Default::default(),
+            creation_time: Default::default(),
+        }
+    }
+}
+
+impl AttestationDefault of Default<Attestation> {
+    fn default() -> Attestation {
+        Attestation {
+            core: Default::default(),
+            reference_uid: Default::default(),
+            revocation_time: Default::default(),
+        }
+    }
+}
+
 
 #[starknet::contract]
 mod Attestations {
     use core::hash::{HashStateExTrait, HashStateTrait};
-    use core::panic_with_felt252;
     use core::poseidon::PoseidonTrait;
-    use starknet::storage::{*, StoragePathEntry};
+    use starknet::storage::*;
     use starknet::{ContractAddress, get_block_timestamp};
     use crate::schema_registry::{ISchemaRegistryDispatcher, ISchemaRegistryDispatcherTrait};
-    use super::AttestationRequest;
-
-
-    #[derive(Debug, Drop, Copy, Clone, starknet::Store)]
-    pub struct Attestation {
-        core: AttestationCore,
-        reference_uid: Option<felt252>,
-        revocation_time: u64,
-    }
-
-    #[derive(Debug, Copy, Hash, Drop, starknet::Store)]
-    pub struct AttestationCore {
-        attester: ContractAddress,
-        recipient: ContractAddress,
-        schema_uid: felt252,
-        revocable: bool,
-        creation_time: u64,
-        revocation_time: u64,
-    }
+    use super::{Attestation, AttestationCore, AttestationRequest};
 
 
     #[storage]
     struct Storage {
         schema_registry: ISchemaRegistryDispatcher,
-        attestation: Map<felt252, Option<Attestation>>,
+        attestation: Map<felt252, Attestation>,
         data: Map<felt252, Vec<felt252>>,
     }
 
@@ -118,41 +137,37 @@ mod Attestations {
                 schema_uid,
                 revocable: *request.revocable,
                 creation_time: get_block_timestamp(),
-                revocation_time: 0,
             };
 
             let uid = self.hash(@attestation_core, salt);
 
-            match self.attestation.entry(uid).read() {
-                Some(_) => { panic_with_felt252(Errors::ALREADY_EXISTS); },
-                None => {
-                    if let Some(val) = *request.reference_uid {
-                        assert(
-                            self.attestation.entry(val).read().is_some(),
-                            Errors::REFERENCE_UID_INVALID,
-                        );
+            assert(
+                self.attestation.entry(uid).read() == Default::default(), Errors::ALREADY_EXISTS,
+            );
 
-                        let attestation = Attestation {
-                            core: attestation_core,
-                            reference_uid: *request.reference_uid,
-                            revocation_time: 0,
-                        };
-
-                        self.attestation.entry(uid).write(Some(attestation));
-
-                        for e in request.data.into_iter() {
-                            self.data.entry(uid).push(*e);
-                        }
-
-                        self
-                            .emit(
-                                Attested {
-                                    attester, recipient: *request.recipient, schema_uid, uid,
-                                },
-                            );
-                    }
-                },
+            if let Some(reference_uid) = *request.reference_uid {
+                assert(
+                    self.attestation.entry(reference_uid).read() == Default::default(),
+                    Errors::REFERENCE_UID_INVALID,
+                );
             }
+
+            self
+                .attestation
+                .entry(uid)
+                .write(
+                    Attestation {
+                        core: attestation_core,
+                        reference_uid: *request.reference_uid,
+                        revocation_time: 0,
+                    },
+                );
+
+            for e in request.data.into_iter() {
+                self.data.entry(uid).push(*e);
+            }
+
+            self.emit(Attested { attester, recipient: *request.recipient, schema_uid, uid });
         }
     }
 }
